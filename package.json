@@ -1,0 +1,31 @@
+{
+  "name": "reseller-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Modular reselling agent: sourcing analysis, listing generation, message drafting, books.",
+  "scripts": {
+    "source": "node src/index.js source",
+    "source-wholesale": "node src/index.js source-wholesale",
+    "list": "node src/index.js list",
+    "ebay-auth": "node src/index.js ebay-auth",
+    "ebay-policies": "node src/index.js ebay-policies",
+    "ebay-location": "node src/index.js ebay-location",
+    "publish": "node src/index.js publish",
+    "reply": "node src/index.js reply",
+    "sale-add": "node src/index.js sale-add",
+    "books": "node src/index.js books",
+    "dashboard": "node src/index.js dashboard",
+    "order-add": "node src/index.js order-add",
+    "orders": "node src/index.js orders",
+    "order-update": "node src/index.js order-update",
+    "init-db": "node src/lib/db.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "better-sqlite3": "^13.0.2",
+    "dotenv": "^16.4.7"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.2": true
+  }
+}
