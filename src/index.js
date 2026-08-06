@@ -6,6 +6,7 @@ import { createDraft } from './modules/publish.js';
 import { draftReply } from './modules/messaging.js';
 import { logSale, summary } from './modules/books.js';
 import { build as buildDashboard } from './modules/dashboard.js';
+import { start as startDashboardServer } from './modules/dashboardServer.js';
 import { consentUrl, exchangeCode, getBusinessPolicies, getMerchantLocations, createMerchantLocation } from './lib/ebay.js';
 
 init();
@@ -352,43 +353,49 @@ if (command === 'source') {
   }
 } else if (command === 'dashboard') {
   const sinceDays = flag('days') ? parseInt(flag('days'), 10) : 7;
-  const d = buildDashboard({ sinceDays });
 
-  console.log(`\n  Dashboard  (error window: last ${sinceDays}d)\n`);
+  if (rest.includes('--text')) {
+    const d = buildDashboard({ sinceDays });
 
-  console.log(`  Runs         ${d.runs.ok} ok, ${d.runs.error} error`);
-  if (d.runs.recentErrors.length) {
-    console.log('  Recent errors:');
-    d.runs.recentErrors.forEach((e) => console.log(`    - [${e.module}] ${e.detail ?? ''}  (${e.started_at})`));
-  }
-  console.log();
+    console.log(`\n  Dashboard  (error window: last ${sinceDays}d)\n`);
 
-  console.log(`  Research     ${d.research.total} runs, ${d.research.scored} scored (actually_bought filled in)`);
-  d.research.byVerdict.forEach((v) => console.log(`    ${v.verdict ?? 'unknown'}: ${v.n}`));
-  console.log();
-
-  console.log(`  Listings     ${d.listings.total} generated, ${d.listings.flagged} flagged`);
-  console.log(`  eBay offers  ${d.offers.total} total`);
-  d.offers.byStatus.forEach((s) => console.log(`    ${s.status}: ${s.n}`));
-  console.log(`  Messages     ${d.messages.total} drafted, ${d.messages.flagged} flagged for review`);
-  console.log();
-
-  console.log('  Books (all-time)');
-  if (!d.books.count) {
-    console.log('    No sales logged yet — npm run sale-add as things sell.');
-  } else {
-    console.log(
-      `    ${d.books.count} sales, ${money(d.books.revenue)} revenue, ${money(d.books.netProfit)} net profit ` +
-        `(${d.books.avgMarginPct}% avg margin)`
-    );
-    if (d.books.estimatedFeeCount) console.log(`    ${d.books.estimatedFeeCount} sale(s) still on estimated fees`);
-  }
-  console.log();
-
-  if (d.pendingDropship.length) {
-    console.log(`  Dropship orders needing action: ${d.pendingDropship.length}`);
-    d.pendingDropship.forEach((o) => console.log(`    #${o.id}  ${o.item}`));
+    console.log(`  Runs         ${d.runs.ok} ok, ${d.runs.error} error`);
+    if (d.runs.recentErrors.length) {
+      console.log('  Recent errors:');
+      d.runs.recentErrors.forEach((e) => console.log(`    - [${e.module}] ${e.detail ?? ''}  (${e.started_at})`));
+    }
     console.log();
+
+    console.log(`  Research     ${d.research.total} runs, ${d.research.scored} scored (actually_bought filled in)`);
+    d.research.byVerdict.forEach((v) => console.log(`    ${v.verdict ?? 'unknown'}: ${v.n}`));
+    console.log();
+
+    console.log(`  Listings     ${d.listings.total} generated, ${d.listings.flagged} flagged`);
+    console.log(`  eBay offers  ${d.offers.total} total`);
+    d.offers.byStatus.forEach((s) => console.log(`    ${s.status}: ${s.n}`));
+    console.log(`  Messages     ${d.messages.total} drafted, ${d.messages.flagged} flagged for review`);
+    console.log();
+
+    console.log('  Books (all-time)');
+    if (!d.books.count) {
+      console.log('    No sales logged yet — npm run sale-add as things sell.');
+    } else {
+      console.log(
+        `    ${d.books.count} sales, ${money(d.books.revenue)} revenue, ${money(d.books.netProfit)} net profit ` +
+          `(${d.books.avgMarginPct}% avg margin)`
+      );
+      if (d.books.estimatedFeeCount) console.log(`    ${d.books.estimatedFeeCount} sale(s) still on estimated fees`);
+    }
+    console.log();
+
+    if (d.pendingDropship.length) {
+      console.log(`  Dropship orders needing action: ${d.pendingDropship.length}`);
+      d.pendingDropship.forEach((o) => console.log(`    #${o.id}  ${o.item}`));
+      console.log();
+    }
+  } else {
+    const port = flag('port') ? parseInt(flag('port'), 10) : 4173;
+    startDashboardServer({ port, sinceDays });
   }
 } else {
   console.log(
@@ -403,7 +410,7 @@ if (command === 'source') {
       '  npm run reply -- --message "..." [--listing <id>] [--situation "..."]\n' +
       '  npm run sale-add -- (--item "..." | --listing <id>) --price N --cost N [--fees N] [--shipping N]\n' +
       '  npm run books [-- --since "2026-01-01"] [--platform ebay]\n' +
-      '  npm run dashboard [-- --days 7]      overview across every module\n' +
+      '  npm run dashboard [-- --port 4173] [--days 7]   opens a local web dashboard (add --text for the CLI report)\n' +
       '  npm run order-add -- --item "..." [--wcost N] [--price N] [--supplier "..."] [--buyer "..."] [--address "..."]\n' +
       '  npm run orders [-- --status needs_ordering|ordered|shipped|delivered|issue]\n' +
       '  npm run order-update -- --id N [--status ...] [--supplier-ref "..."] [--tracking "..."]'

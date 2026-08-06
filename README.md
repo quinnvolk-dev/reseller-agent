@@ -137,18 +137,21 @@ real payout numbers.
 
 ## Dashboard (Module 6)
 
-A single-glance overview across everything logged so far — no separate web server, just a CLI
-report:
+A single-glance overview across everything logged so far. Opens a local web page (no data
+leaves your machine — the page only talks to `localhost`):
 
 ```bash
-npm run dashboard                # errors from the last 7 days
-npm run dashboard -- --days 30
+npm run dashboard                       # opens http://localhost:4173 in your browser
+npm run dashboard -- --port 8080        # different port
+npm run dashboard -- --text             # the old plain-text CLI report instead
 ```
 
-Shows: run health (ok/error counts, recent error detail), sourcing verdict breakdown and how
-many you've scored with a real outcome, listings generated and how many got flagged,
-eBay offer status, message drafts flagged for review, all-time books totals, and any dropship
-orders still waiting to be placed with a supplier.
+An **Overview** tab shows the headline numbers plus a card per module you can click straight
+into. Each module (Sourcing, Listings, eBay, Messages, Books, Activity) gets its own tab with
+just that module's stats and its own recent errors — Activity is the catch-all for full error
+history and pending dropship orders. Tabs are keyboard-navigable (arrow keys) and deep-linkable
+(`#books`, `#sourcing`, etc). Has a date-range selector and auto-refreshes
+every 30 seconds; leave it open in a tab while you work.
 
 ## Dropshipping instead of bulk-buy
 
@@ -205,7 +208,10 @@ src/
     publish.js           Module 3
     messaging.js         Module 4 — buyer message reply drafts
     books.js             Module 5 — real cost/fees/profit per sale
-    dashboard.js         Module 6 — cross-module overview (CLI report)
+    dashboard.js         Module 6 — cross-module overview (data)
+    dashboardServer.js   Module 6 — local web server for the dashboard
+  dashboard/
+    index.html           Module 6 — dashboard page (served by dashboardServer.js)
   index.js        CLI
   data/agent.db   created by init-db
 ```

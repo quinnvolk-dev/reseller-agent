@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reseller Agent — Dashboard</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page-plane:     #08080c;
+    --text-primary:   #f4f4f8;
+    --text-secondary: #b7b6c4;
+    --text-muted:     #7d7c8c;
+    --gridline:       #2a2a34;
+    --baseline:       #3c3c48;
+    --success-text:   #3ee06a;
+
+    --status-good:     #0ca30c;
+    --status-good-glow: #22c55e;
+    --status-warning:  #fab219;
+    --status-serious:  #ec835a;
+    --status-critical: #e6534f;
+
+    --series-blue:    #3987e5;
+    --series-orange:  #d95926;
+    --series-aqua:    #199e70;
+    --series-magenta: #d55181;
+
+    /* brand — a restrained single-hue indigo family, not a rainbow */
+    --accent:   #7c6fee;
+    --accent-2: #ab9ff7;
+    --live:     #3ecf7e;
+
+    /* per-module wayfinding accents — a harmonized jewel-tone set (own family,
+       distinct from --series-*/--status-* which encode actual data) */
+    --mod-overview: #7c6fee;
+    --mod-sourcing: #5b8def;
+    --mod-listings: #2fc9c0;
+    --mod-ebay:     #f0a857;
+    --mod-messages: #ea6fa6;
+    --mod-books:    #3ecf7e;
+    --mod-activity: #f2685f;
+
+    /* glass material — tuned per-surface via --tint, see .glass */
+    --glass-blur: 22px;
+    --glass-sat: 170%;
+    --glass-fill: 255,255,255;
+    --glass-alpha-top: 0.14;
+    --glass-alpha-bottom: 0.04;
+    --glass-edge: rgba(255,255,255,0.22);
+    --glass-edge-dim: rgba(255,255,255,0.06);
+    --glass-shadow: 0 24px 48px -28px rgba(0,0,0,0.65), 0 2px 6px -2px rgba(0,0,0,0.4);
+    --radius-lg: 26px;
+    --radius-md: 18px;
+    --radius-sm: 12px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:where(:not([data-theme="dark"])) {
+      color-scheme: light;
+      --page-plane:     #eef0f4;
+      --text-primary:   #14131c;
+      --text-secondary: #55545f;
+      --text-muted:     #86859a;
+      --gridline:       #dcdbe8;
+      --baseline:       #c7c6d6;
+      --success-text:   #0c8a2e;
+
+      --series-blue:    #2a78d6;
+      --series-orange:  #eb6834;
+      --series-aqua:    #1baf7a;
+      --series-magenta: #c74a75;
+
+      --accent:   #6c5ce7;
+      --accent-2: #8b7ff0;
+      --live:     #0c8a2e;
+
+      --mod-overview: #6c5ce7;
+      --mod-sourcing: #3a72d4;
+      --mod-listings: #12a99c;
+      --mod-ebay:     #d68a35;
+      --mod-messages: #cf5990;
+      --mod-books:    #0c8a2e;
+      --mod-activity: #d9483f;
+
+      --glass-fill: 255,255,255;
+      --glass-alpha-top: 0.55;
+      --glass-alpha-bottom: 0.22;
+      --glass-edge: rgba(255,255,255,0.85);
+      --glass-edge-dim: rgba(20,19,28,0.06);
+      --glass-shadow: 0 20px 40px -26px rgba(30,30,60,0.28), 0 2px 6px -2px rgba(30,30,60,0.12);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ---- ambient liquid backdrop: soft drifting color orbs behind the glass ---- */
+  .orbs { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.4; will-change: transform; }
+  .orb.o1 { width: 44vw; height: 44vw; left: -12vw; top: -16vw; background: radial-gradient(circle at 35% 35%, var(--accent), transparent 68%); animation: drift1 28s ease-in-out infinite; }
+  .orb.o2 { width: 36vw; height: 36vw; right: -10vw; top: 8vw; background: radial-gradient(circle at 60% 40%, var(--mod-messages), transparent 70%); opacity: 0.22; animation: drift2 34s ease-in-out infinite; }
+  @keyframes drift1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(4vw,3vw) scale(1.08); } }
+  @keyframes drift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-3vw,4vw) scale(0.95); } }
+  @media (prefers-reduced-motion: reduce) { .orb { animation: none; } }
+  .grid-veil {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: linear-gradient(var(--glass-edge-dim) 1px, transparent 1px), linear-gradient(90deg, var(--glass-edge-dim) 1px, transparent 1px);
+    background-size: 56px 56px;
+    -webkit-mask-image: radial-gradient(85% 65% at 50% 0%, black, transparent 78%);
+            mask-image: radial-gradient(85% 65% at 50% 0%, black, transparent 78%);
+  }
+
+  .shell { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  /* ---- Liquid Glass material — the shared surface treatment ---- */
+  .glass {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(var(--glass-fill), var(--glass-alpha-top)), rgba(var(--glass-fill), var(--glass-alpha-bottom))),
+      var(--tint, transparent);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    border-radius: var(--radius-lg);
+    box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 1px var(--glass-edge-dim), var(--glass-shadow);
+    isolation: isolate;
+  }
+  .glass::before {
+    /* top sheen — the "light hits the glass" highlight */
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(120deg, rgba(255,255,255,0.16) 0%, transparent 32%);
+    mix-blend-mode: overlay;
+  }
+  .glass::after {
+    /* cursor-follow specular spot, driven by --mx/--my set on pointermove */
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+    background: radial-gradient(240px circle at var(--mx,50%) var(--my,0%), rgba(255,255,255,0.16), transparent 60%);
+    transition: opacity .25s ease;
+  }
+  .glass:hover::after { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .glass::after { display: none; } }
+
+  /* ---- top bar ---- */
+  header.topbar {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;
+    padding: 14px 20px; margin-bottom: 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .mark {
+    width: 34px; height: 34px; border-radius: 10px; flex: none;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 4px 16px -4px var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    color: #0b0b12; font-weight: 800; font-size: 15px;
+  }
+  .brand .titles h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+  .brand .titles .sub { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 0 rgba(62,207,126,0.6); animation: pulse 2.2s ease-out infinite; flex: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(62,207,126,0.55); } 70% { box-shadow: 0 0 0 8px rgba(62,207,126,0); } 100% { box-shadow: 0 0 0 0 rgba(62,207,126,0); } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+  .controls { display: flex; align-items: center; gap: 8px; }
+  select, button {
+    font: inherit; color: var(--text-primary); background: rgba(var(--glass-fill), 0.08);
+    border: 1px solid var(--glass-edge-dim); border-radius: 999px; padding: 8px 14px;
+    cursor: pointer; transition: box-shadow .15s ease, transform .1s ease, background .15s ease;
+  }
+  select:hover, button:hover { background: rgba(var(--glass-fill), 0.14); box-shadow: inset 0 1px 0 var(--glass-edge); }
+  button:active { transform: scale(0.96); }
+  select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #updated { color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+  /* ---- tab bar (liquid glass segmented control) ---- */
+  nav.tabbar {
+    display: flex; gap: 2px; padding: 5px; margin-bottom: 18px;
+    overflow-x: auto; scrollbar-width: none; position: relative;
+  }
+  nav.tabbar::-webkit-scrollbar { display: none; }
+  .tab-indicator {
+    position: absolute; top: 5px; bottom: 5px; left: 5px; width: 0;
+    background: rgba(var(--glass-fill), 0.16);
+    box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 1px var(--glass-edge-dim), 0 6px 16px -8px rgba(0,0,0,0.5);
+    border-radius: var(--radius-sm);
+    transition: transform .32s cubic-bezier(.2,.9,.25,1), width .32s cubic-bezier(.2,.9,.25,1), background .2s ease;
+    pointer-events: none;
+  }
+  .tab {
+    position: relative; z-index: 1; display: flex; align-items: center; gap: 7px;
+    background: transparent; border: none; border-radius: var(--radius-sm);
+    padding: 9px 15px; color: var(--text-secondary); font-size: 13px; font-weight: 560;
+    white-space: nowrap; flex: none;
+  }
+  .tab svg { width: 15px; height: 15px; opacity: 0.85; flex: none; }
+  .tab[aria-selected="true"] { color: var(--text-primary); }
+  .tab[aria-selected="true"] svg { color: var(--tab-accent, var(--accent)); opacity: 1; }
+  .tab:hover { color: var(--text-primary); }
+  .tab .n { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 11.5px; }
+  .tab[aria-selected="true"] .n { color: var(--text-secondary); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* ---- panels ---- */
+  .panel { padding: 22px 24px; margin-bottom: 16px; animation: rise .4s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .panel, .kpi, .modcard { animation: none; } }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+  .panel-head h2 { font-size: 15px; font-weight: 650; margin: 0; display: flex; align-items: center; gap: 9px; }
+  .panel-head h2 .ic {
+    width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--tab-accent, var(--accent)) 22%, transparent);
+    color: var(--tab-accent, var(--accent));
+  }
+  .panel-head h2 .ic svg { width: 16px; height: 16px; }
+  .panel-head .foot { color: var(--text-muted); font-size: 12px; }
+  .panel-sub { margin-bottom: 18px; }
+  .panel-sub:last-child { margin-bottom: 0; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .kpi { padding: 18px 20px; animation: rise .4s ease both; transition: transform .18s ease; }
+  .kpi:hover { transform: translateY(-2px); }
+  .kpi .label { color: var(--text-secondary); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .kpi .value { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+  .kpi .value.hero { font-size: 32px; }
+  .kpi .foot { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+  .glow-good { color: var(--status-good-glow); text-shadow: 0 0 14px rgba(34,197,94,0.25); }
+  .glow-bad { color: var(--status-critical); text-shadow: 0 0 14px rgba(230,83,79,0.22); }
+
+  /* ---- overview module-summary grid (the "jump to a module" cards) ---- */
+  .mod-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .modcard {
+    display: flex; align-items: center; gap: 12px; text-align: left; width: 100%; min-width: 0;
+    padding: 15px 16px; cursor: pointer; color: inherit; font: inherit;
+    animation: rise .4s ease both; transition: transform .18s ease;
+  }
+  .modcard:hover { transform: translateY(-2px); }
+  .modcard .ic {
+    width: 38px; height: 38px; border-radius: 11px; flex: none; display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--tab-accent) 22%, transparent); color: var(--tab-accent);
+  }
+  .modcard .ic svg { width: 19px; height: 19px; }
+  .modcard .name { min-width: 0; flex: 1; font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .modcard .chev { color: var(--text-muted); flex: none; transition: transform .18s ease; }
+  .modcard:hover .chev { transform: translateX(2px); color: var(--text-secondary); }
+
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex: none; }
+
+  .stackbar { display: flex; gap: 2px; height: 26px; border-radius: 8px; overflow: hidden; background: var(--gridline); margin-bottom: 12px; }
+  .stackbar .seg { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 650; min-width: 0; cursor: default; transition: filter .12s ease; }
+  .stackbar .seg:hover { filter: brightness(1.15); }
+  .stackbar .seg span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; }
+  .legend .item { display: flex; align-items: center; font-size: 12px; color: var(--text-secondary); }
+  .legend .item b { color: var(--text-primary); margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+  .meter-track { height: 7px; border-radius: 4px; background: var(--gridline); overflow: hidden; }
+  .meter-fill { height: 100%; border-radius: 4px; transition: width .5s cubic-bezier(.2,.8,.2,1); }
+  .meter-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-bottom: 7px; }
+  .meter-label .val { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+  .meter-wrap { margin-bottom: 15px; }
+  .meter-wrap:last-child { margin-bottom: 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 10px; border-bottom: 1px solid var(--gridline); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--gridline); vertical-align: top; }
+  tbody tr { transition: background .12s ease; }
+  tbody tr:hover { background: rgba(var(--glass-fill), 0.05); }
+  tr:last-child td { border-bottom: none; }
+  .mono { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+  .detail { color: var(--text-secondary); max-width: 640px; overflow-wrap: break-word; }
+
+  .empty { color: var(--text-muted); font-size: 13px; padding: 8px 0; }
+  .badge { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 650; padding: 3px 9px; border-radius: 999px; letter-spacing: 0.02em; }
+
+  .tip {
+    position: fixed; z-index: 50; pointer-events: none;
+    background: rgba(var(--glass-fill), 0.9); backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-edge-dim); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--text-primary);
+    box-shadow: var(--glass-shadow); opacity: 0; transform: translate(-50%, -6px); transition: opacity .1s ease; white-space: nowrap;
+  }
+  [data-theme], html { color-scheme: dark; }
+  @media (prefers-color-scheme: light) { .tip { background: rgba(255,255,255,0.92); color: #14131c; } }
+  .tip.show { opacity: 1; }
+  .tip .tv { font-variant-numeric: tabular-nums; font-weight: 650; }
+
+  @media (max-width: 640px) {
+    .panel { padding: 18px; }
+    header.topbar { padding: 12px 14px; }
+  }
+</style>
+</head>
+<body>
+  <div class="orbs"><div class="orb o1"></div><div class="orb o2"></div></div>
+  <div class="grid-veil"></div>
+
+  <div class="shell">
+    <header class="topbar glass">
+      <div class="brand">
+        <div class="mark">R</div>
+        <div class="titles">
+          <h1>Reseller Agent</h1>
+          <div class="sub"><span class="pulse"></span>Live · updates every 30s</div>
+        </div>
+      </div>
+      <div class="controls">
+        <span id="updated"></span>
+        <select id="range" aria-label="Date range">
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="3650">All time</option>
+        </select>
+        <button id="refresh">Refresh</button>
+      </div>
+    </header>
+
+    <nav class="tabbar glass" role="tablist" aria-label="Modules" id="tabbar">
+      <div class="tab-indicator" id="tabIndicator"></div>
+    </nav>
+
+    <main id="panels"></main>
+  </div>
+
+  <div class="tip" id="tip"></div>
+
+<script>
+const ICONS = {
+  overview: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
+  sourcing: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/>',
+  listings: '<path d="M3 7l7-4 7 4v10l-7 4-7-4z"/><path d="M3 7l7 4 7-4"/><path d="M10 11v10"/>',
+  ebay: '<path d="M6 9h12l-1 11H7z"/><path d="M9 9V6a3 3 0 016 0v3"/>',
+  messages: '<path d="M4 5h16v11H8l-4 4z"/>',
+  books: '<path d="M4 6a2 2 0 012-2h13v16H6a2 2 0 00-2 2z"/><path d="M19 4v16"/><path d="M8 8h6"/>',
+  activity: '<path d="M3 12h4l2-7 4 14 2-7h6"/>',
+  chevron: '<path d="M9 6l6 6-6 6"/>',
+};
+const MODULES = [
+  { key: 'overview', label: 'Overview', accent: 'var(--mod-overview)' },
+  { key: 'sourcing', label: 'Sourcing', accent: 'var(--mod-sourcing)' },
+  { key: 'listings', label: 'Listings', accent: 'var(--mod-listings)' },
+  { key: 'ebay', label: 'eBay', accent: 'var(--mod-ebay)' },
+  { key: 'messages', label: 'Messages', accent: 'var(--mod-messages)' },
+  { key: 'books', label: 'Books', accent: 'var(--mod-books)' },
+  { key: 'activity', label: 'Activity', accent: 'var(--mod-activity)' },
+];
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function money(n) {
+  if (n == null) return 'n/a';
+  const v = Number(n);
+  return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function compact(n) { return n == null ? '0' : Number(n).toLocaleString(); }
+function timeAgo(iso) {
+  if (!iso) return '';
+  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+// ---- shared tooltip ----
+const tipEl = document.getElementById('tip');
+function showTip(evt, html) { tipEl.innerHTML = html; tipEl.classList.add('show'); moveTip(evt); }
+function moveTip(evt) {
+  const r = tipEl.getBoundingClientRect();
+  tipEl.style.left = Math.min(window.innerWidth - r.width / 2 - 8, Math.max(r.width / 2 + 8, evt.clientX)) + 'px';
+  tipEl.style.top = (evt.clientY - 14) + 'px';
+}
+function hideTip() { tipEl.classList.remove('show'); }
+function bindTip(el, html) {
+  el.addEventListener('pointerenter', (e) => showTip(e, html));
+  el.addEventListener('pointermove', moveTip);
+  el.addEventListener('pointerleave', hideTip);
+  el.tabIndex = 0;
+  el.addEventListener('focus', () => { const r = el.getBoundingClientRect(); showTip({ clientX: r.left + r.width / 2, clientY: r.top }, html); });
+  el.addEventListener('blur', hideTip);
+}
+
+// ---- cursor-follow specular highlight on glass surfaces ----
+document.addEventListener('pointermove', (e) => {
+  const card = e.target.closest('.glass');
+  if (!card) return;
+  const r = card.getBoundingClientRect();
+  card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%');
+  card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
+}, { passive: true });
+
+function stackBar(segments) {
+  const total = segments.reduce((s, x) => s + x.count, 0);
+  const bars = segments.filter((s) => s.count > 0);
+  const barHtml = bars.map((s, i) => {
+    const pct = ((s.count / total) * 100).toFixed(1);
+    const showLabel = pct >= 12;
+    return `<div class="seg" data-i="${i}" style="width:${pct}%; background:${s.color}">${showLabel ? `<span>${s.count}</span>` : ''}</div>`;
+  }).join('');
+  const legend = segments.map((s) => `<div class="item"><span class="dot" style="background:${s.color}"></span>${esc(s.label)}<b>${s.count}</b></div>`).join('');
+  return { total, bars, html: `<div class="stackbar">${barHtml}</div><div class="legend">${legend}</div>` };
+}
+function renderStackBar(container, segments) {
+  const total = segments.reduce((s, x) => s + x.count, 0);
+  if (!total) { container.innerHTML = '<div class="empty">No data yet.</div>'; return; }
+  const { html, bars } = stackBar(segments);
+  container.innerHTML = html;
+  container.querySelectorAll('.seg').forEach((el) => {
+    const s = bars[Number(el.dataset.i)];
+    const pct = ((s.count / total) * 100).toFixed(1);
+    bindTip(el, `${esc(s.label)}: <span class="tv">${s.count}</span> <span style="color:var(--text-muted)">(${pct}%)</span>`);
+  });
+}
+function meter(container, label, count, total, color) {
+  if (!total) {
+    container.insertAdjacentHTML('beforeend', `<div class="meter-wrap"><div class="meter-label"><span>${esc(label)}</span><span>—</span></div><div class="empty" style="padding:0">Nothing logged yet.</div></div>`);
+    return;
+  }
+  const pct = Math.min(100, (count / total) * 100);
+  const id = 'm' + Math.random().toString(36).slice(2, 8);
+  const fmt = (n) => (typeof n === 'number' && n % 1 !== 0 ? n.toFixed(2) : n);
+  container.insertAdjacentHTML('beforeend', `
+    <div class="meter-wrap">
+      <div class="meter-label"><span>${esc(label)}</span><span class="val">${fmt(count)} / ${fmt(total)}</span></div>
+      <div class="meter-track"><div class="meter-fill" id="${id}" style="width:0%; background:${color}"></div></div>
+    </div>`);
+  const fill = container.querySelector('#' + id);
+  requestAnimationFrame(() => { fill.style.width = pct.toFixed(1) + '%'; });
+  bindTip(fill.parentElement, `${esc(label)}: <span class="tv">${pct.toFixed(1)}%</span>`);
+}
+function errorsTable(errors, emptyMsg) {
+  if (!errors.length) return `<div class="empty">${esc(emptyMsg)}</div>`;
+  return `<table>
+    <thead><tr><th>Module</th><th>Detail</th><th>When</th></tr></thead>
+    <tbody>${errors.map((e) => `
+      <tr>
+        <td><span class="badge" style="background:color-mix(in srgb, var(--status-critical) 18%, transparent); color:var(--status-critical)">${esc(e.module)}</span></td>
+        <td class="detail">${esc((e.detail ?? '').slice(0, 300))}</td>
+        <td class="mono">${timeAgo(e.started_at)}</td>
+      </tr>`).join('')}</tbody>
+  </table>`;
+}
+function icon(key, extra = '') {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra}>${ICONS[key]}</svg>`;
+}
+
+// ---- tab bar build + routing ----
+const tabbar = document.getElementById('tabbar');
+const indicator = document.getElementById('tabIndicator');
+MODULES.forEach((m) => {
+  const btn = document.createElement('button');
+  btn.className = 'tab'; btn.type = 'button'; btn.dataset.tab = m.key;
+  btn.role = 'tab'; btn.setAttribute('aria-selected', 'false'); btn.setAttribute('aria-controls', 'panel-' + m.key);
+  btn.style.setProperty('--tab-accent', m.accent);
+  btn.innerHTML = `${icon(m.key)}<span>${m.label}</span><span class="n" data-count></span>`;
+  btn.addEventListener('click', () => setActiveTab(m.key, true));
+  tabbar.appendChild(btn);
+});
+tabbar.addEventListener('keydown', (e) => {
+  const tabs = [...tabbar.querySelectorAll('.tab')];
+  const i = tabs.indexOf(document.activeElement);
+  if (i === -1) return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); tabs[(i + 1) % tabs.length].focus(); tabs[(i + 1) % tabs.length].click(); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); tabs[(i - 1 + tabs.length) % tabs.length].focus(); tabs[(i - 1 + tabs.length) % tabs.length].click(); }
+});
+
+let activeTab = 'overview';
+function setActiveTab(key, pushHash) {
+  activeTab = key;
+  tabbar.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === key)));
+  document.querySelectorAll('.panel').forEach((p) => { p.hidden = p.id !== 'panel-' + key; });
+  const btn = tabbar.querySelector(`.tab[data-tab="${key}"]`);
+  if (btn) {
+    indicator.style.width = btn.offsetWidth + 'px';
+    indicator.style.transform = `translateX(${btn.offsetLeft - 5}px)`;
+  }
+  if (pushHash) history.replaceState(null, '', '#' + key);
+}
+window.addEventListener('hashchange', () => {
+  const key = location.hash.replace('#', '');
+  if (MODULES.some((m) => m.key === key)) setActiveTab(key, false);
+});
+window.addEventListener('resize', () => setActiveTab(activeTab, false));
+
+function panelHead(key, title, foot) {
+  const m = MODULES.find((x) => x.key === key);
+  return `<div class="panel-head"><h2><span class="ic" style="--tab-accent:${m.accent}">${icon(key)}</span>${title}</h2>${foot ? `<span class="foot">${foot}</span>` : ''}</div>`;
+}
+
+function render(d) {
+  const panels = document.getElementById('panels');
+
+  const verdictOrder = ['BUY', 'LIST', 'PASS', 'NEED_MORE_DATA'];
+  const verdictColor = (v) => (v === 'BUY' || v === 'LIST') ? 'var(--status-good-glow)' : v === 'NEED_MORE_DATA' ? 'var(--status-warning)' : 'var(--text-muted)';
+  const verdictSegs = [...d.research.byVerdict].sort((a, b) => verdictOrder.indexOf(a.verdict) - verdictOrder.indexOf(b.verdict))
+    .map((v) => ({ label: v.verdict ?? 'unknown', count: v.n, color: verdictColor(v.verdict) }));
+
+  const offerColor = { draft: 'var(--text-muted)', published: 'var(--status-good-glow)', error: 'var(--status-critical)' };
+  const offerSegs = d.offers.byStatus.map((s) => ({ label: s.status, count: s.n, color: offerColor[s.status] ?? 'var(--text-muted)' }));
+
+  const errBy = (...mods) => d.runs.recentErrors.filter((e) => mods.includes(e.module)).slice(0, 6);
+  const sourcingErrors = errBy('sourcing', 'wholesale-sourcing');
+  const listingErrors = errBy('listing');
+  const ebayErrors = errBy('publish');
+  const messageErrors = errBy('messaging');
+  const booksErrors = errBy('books');
+
+  const runOk = d.runs.ok, runErr = d.runs.error, runTotal = runOk + runErr;
+
+  panels.innerHTML = `
+    <section class="panel glass" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+      <div class="kpi-row">
+        <div class="kpi glass">
+          <div class="label">Net profit · all-time</div>
+          <div class="value hero ${d.books.netProfit > 0 ? 'glow-good' : d.books.netProfit < 0 ? 'glow-bad' : ''}">${money(d.books.netProfit)}</div>
+          <div class="foot">${d.books.count ? `${d.books.count} sale${d.books.count === 1 ? '' : 's'} · ${d.books.avgMarginPct ?? '?'}% avg margin` : 'No sales logged yet'}</div>
+        </div>
+        <div class="kpi glass">
+          <div class="label">Revenue · all-time</div>
+          <div class="value">${money(d.books.revenue)}</div>
+          <div class="foot">${d.books.estimatedFeeCount ? `${d.books.estimatedFeeCount} sale(s) on estimated fees` : 'Fees up to date'}</div>
+        </div>
+        <div class="kpi glass">
+          <div class="label">Runs · window</div>
+          <div class="value ${runErr ? 'glow-bad' : ''}">${runOk}<span style="color:var(--text-muted); font-size:16px;"> ok / ${runErr} err</span></div>
+          <div class="foot">${runTotal ? `${((runOk / runTotal) * 100).toFixed(0)}% success rate` : 'No runs in this window'}</div>
+        </div>
+        <div class="kpi glass">
+          <div class="label">eBay offers</div>
+          <div class="value">${compact(d.offers.total)}</div>
+          <div class="foot">${d.offers.byStatus.map((s) => `${s.n} ${s.status}`).join(', ') || 'None yet'}</div>
+        </div>
+      </div>
+      <div class="mod-grid">
+        ${modCard('sourcing', 'Sourcing')}
+        ${modCard('listings', 'Listings')}
+        ${modCard('ebay', 'eBay')}
+        ${modCard('messages', 'Messages')}
+        ${modCard('books', 'Books')}
+        ${modCard('activity', 'Activity')}
+      </div>
+    </section>
+
+    <section class="panel glass" id="panel-sourcing" role="tabpanel" aria-labelledby="tab-sourcing" hidden>
+      ${panelHead('sourcing', 'Sourcing', `${d.research.total} research run${d.research.total === 1 ? '' : 's'}`)}
+      <div class="panel-sub" data-slot="verdicts"></div>
+      <div class="panel-sub foot" style="color:var(--text-muted); font-size:12px; margin-top:-8px;">${d.research.scored} scored with a real outcome (fill in <code>actually_bought</code> to track hit rate)</div>
+      <h2 style="font-size:12.5px; margin:20px 0 10px; color:var(--text-secondary);">Recent errors</h2>
+      ${errorsTable(sourcingErrors, 'No sourcing errors in this window.')}
+    </section>
+
+    <section class="panel glass" id="panel-listings" role="tabpanel" aria-labelledby="tab-listings" hidden>
+      ${panelHead('listings', 'Listings', `${d.listings.total} generated`)}
+      <div class="panel-sub" data-slot="listings-meter"></div>
+      <h2 style="font-size:12.5px; margin:20px 0 10px; color:var(--text-secondary);">Recent errors</h2>
+      ${errorsTable(listingErrors, 'No listing errors in this window.')}
+    </section>
+
+    <section class="panel glass" id="panel-ebay" role="tabpanel" aria-labelledby="tab-ebay" hidden>
+      ${panelHead('ebay', 'eBay offers', `${d.offers.total} total`)}
+      <div class="panel-sub" data-slot="offers"></div>
+      <h2 style="font-size:12.5px; margin:20px 0 10px; color:var(--text-secondary);">Recent errors</h2>
+      ${errorsTable(ebayErrors, 'No eBay publish errors in this window.')}
+    </section>
+
+    <section class="panel glass" id="panel-messages" role="tabpanel" aria-labelledby="tab-messages" hidden>
+      ${panelHead('messages', 'Messages', `${d.messages.total} drafted`)}
+      <div class="panel-sub" data-slot="messages-meter"></div>
+      <h2 style="font-size:12.5px; margin:20px 0 10px; color:var(--text-secondary);">Recent errors</h2>
+      ${errorsTable(messageErrors, 'No message-drafting errors in this window.')}
+    </section>
+
+    <section class="panel glass" id="panel-books" role="tabpanel" aria-labelledby="tab-books" hidden>
+      ${panelHead('books', 'Books', d.books.count ? `${d.books.count} sales` : null)}
+      <div class="panel-sub" data-slot="books"></div>
+    </section>
+
+    <section class="panel glass" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
+      ${panelHead('activity', 'Activity', `${runOk} ok / ${runErr} error`)}
+      <h2 style="font-size:12.5px; margin:0 0 10px; color:var(--text-secondary);">Recent errors — all modules</h2>
+      ${errorsTable(d.runs.recentErrors, 'No errors in this window.')}
+      <h2 style="font-size:12.5px; margin:22px 0 10px; color:var(--text-secondary);">Dropship orders needing action</h2>
+      ${d.pendingDropship.length ? `<table>
+        <thead><tr><th>#</th><th>Item</th><th>Supplier</th></tr></thead>
+        <tbody>${d.pendingDropship.map((o) => `<tr><td class="mono">#${o.id}</td><td>${esc(o.item)}</td><td class="detail">${esc(o.supplier ?? '—')}</td></tr>`).join('')}</tbody>
+      </table>` : '<div class="empty">Nothing waiting to be ordered.</div>'}
+    </section>
+  `;
+
+  renderStackBar(panels.querySelector('[data-slot="verdicts"]'), verdictSegs);
+  renderStackBar(panels.querySelector('[data-slot="offers"]'), offerSegs);
+  meter(panels.querySelector('[data-slot="listings-meter"]'), 'Listings flagged', d.listings.flagged, d.listings.total, 'var(--status-warning)');
+  meter(panels.querySelector('[data-slot="messages-meter"]'), 'Messages flagged', d.messages.flagged, d.messages.total, 'var(--status-warning)');
+
+  const booksSlot = panels.querySelector('[data-slot="books"]');
+  if (d.books.count) {
+    meter(booksSlot, 'Cost basis of revenue', d.books.costBasis, d.books.revenue, 'var(--series-blue)');
+    meter(booksSlot, 'Fees of revenue', d.books.fees, d.books.revenue, 'var(--series-orange)');
+    meter(booksSlot, 'Shipping of revenue', d.books.shippingCost, d.books.revenue, 'var(--series-aqua)');
+  } else {
+    booksSlot.innerHTML = '<div class="empty">No sales logged yet — npm run sale-add as things sell.</div>';
+  }
+
+  // tab counters
+  const counts = { overview: null, sourcing: d.research.total, listings: d.listings.total, ebay: d.offers.total, messages: d.messages.total, books: d.books.count, activity: runErr };
+  Object.entries(counts).forEach(([k, v]) => {
+    const el = tabbar.querySelector(`.tab[data-tab="${k}"] [data-count]`);
+    if (el) el.textContent = v == null ? '' : v;
+  });
+
+  setActiveTab(activeTab, false);
+}
+
+function modCard(key, name) {
+  const m = MODULES.find((x) => x.key === key);
+  return `<button type="button" class="modcard glass" style="--tab-accent:${m.accent}" onclick="setActiveTab('${key}', true)">
+    <span class="ic">${icon(key)}</span>
+    <span class="name">${esc(name)}</span>
+    <span class="chev">${icon('chevron')}</span>
+  </button>`;
+}
+
+let firstLoad = true;
+async function load() {
+  const days = document.getElementById('range').value;
+  const panels = document.getElementById('panels');
+  if (!firstLoad) panels.style.opacity = '0.55';
+  try {
+    const res = await fetch(`/api/data?days=${days}`);
+    const data = await res.json();
+    render(data);
+    document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } finally {
+    panels.style.opacity = '1';
+    firstLoad = false;
+  }
+}
+
+document.getElementById('refresh').addEventListener('click', load);
+document.getElementById('range').addEventListener('change', load);
+
+const initialHash = location.hash.replace('#', '');
+if (MODULES.some((m) => m.key === initialHash)) activeTab = initialHash;
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

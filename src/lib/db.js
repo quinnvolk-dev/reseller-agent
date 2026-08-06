@@ -261,7 +261,7 @@ export function getRunStats({ sinceDays = 7 } = {}) {
     .prepare(
       `SELECT started_at, module, detail FROM runs
        WHERE status = 'error' AND started_at >= datetime('now', ?)
-       ORDER BY started_at DESC LIMIT 5`
+       ORDER BY started_at DESC LIMIT 25`
     )
     .all(since);
   return {
