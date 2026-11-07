@@ -23,7 +23,14 @@ function money(n) {
 }
 
 try {
-if (command === 'source') {
+if (command === 'migrate') {
+  // init() above already applied anything pending; this just reports where things stand.
+  const { db } = await import('./lib/db.js');
+  const rows = db.prepare('SELECT id, applied_at FROM schema_migrations ORDER BY id').all();
+  console.log('\n  Database is up to date. Applied migrations:');
+  rows.forEach((r) => console.log(`    ${r.id}  (${r.applied_at})`));
+  console.log();
+} else if (command === 'source') {
   const query = flag('q');
   const unitCost = parseFloat(flag('cost'));
   const qty = parseInt(flag('qty', '1'), 10);

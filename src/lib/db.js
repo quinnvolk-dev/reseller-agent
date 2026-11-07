@@ -1,10 +1,14 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
+import { mkdirSync } from 'fs';
 import path from 'path';
+import { migrate } from './migrate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '../data/agent.db');
+// RESELLER_DB_PATH lets tests (or a scratch copy) point at a different file. Unset = your real DB.
+export const DB_PATH = process.env.RESELLER_DB_PATH || path.join(__dirname, '../data/agent.db');
 
+if (DB_PATH !== ':memory:') mkdirSync(path.dirname(DB_PATH), { recursive: true });
 export const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
@@ -130,6 +134,9 @@ export function init() {
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Schema changes after the original tables live in src/migrations/ (multi-shop, ...).
+  migrate(db, { dbPath: DB_PATH });
 }
 
 export function logRun({ module, status, detail, durationMs }) {
