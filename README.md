@@ -50,10 +50,10 @@ npm run publish -- --listing 3 --photos "https://your-host.com/1.jpg,https://you
   --price 45 --qty 3 --condition USED_EXCELLENT
 ```
 
-`--listing` is the row id from the `list` step above (check `src/data/agent.db`, `listings`
-table, or just note the id it prints — logging that id is on the roadmap for the dashboard).
-This never publishes automatically — it creates an unpublished draft offer you review and
-publish yourself from Seller Hub.
+`--listing` is the item id the `list` step prints (`Item #3`). This never publishes
+automatically — it creates an unpublished draft offer you review in Seller Hub. To make it
+live and have the app track the eBay listing, run `npm run go-live -- --item 3 --yes` (see
+Multi-shop below).
 
 ## eBay auto-lister setup (Module 3)
 
@@ -180,6 +180,101 @@ npm run orders                                    # everything not yet delivered
 npm run order-update -- --id 1 --status ordered --supplier-ref "PO-123" --tracking "1Z..."
 ```
 
+## Multi-shop (listing for local shops)
+
+The app can list inventory for other shops on consignment, alongside your own. Every item
+belongs to a shop. Shop #1, "Quinn (own inventory)", is your own stock: you keep 100%, and it
+can list on eBay and Depop. Everything that existed before multi-shop belongs to shop #1.
+
+### Adding a shop
+
+```bash
+npm run shop-add -- --name "Fremont Vintage" --contact "Pat Lee" --email pat@example.com \
+  --phone "206-555-0100" --platforms ebay,depop --floor 15 --split 25
+npm run shops                       # list shops and their settings
+```
+
+| Setting | Flag | Default | What it does |
+|---|---|---|---|
+| Allowed platforms | `--platforms ebay,depop` | `ebay` | Items can only be listed on these platforms. |
+| Price floor | `--floor 15` (dollars) | none | Nothing is drafted, published or recorded below this price. |
+| Your split | `--split 25` (%) | 25 | Your cut of net (sale price minus platform fees). |
+| Account mode | `--mode mine\|theirs` | `mine` | `mine` = listed on your eBay account. `theirs` = listed on the shop's own account. Per-shop eBay accounts aren't built yet, so eBay listing is refused for `theirs` shops. |
+| eBay connected | `--ebay-connected` | off | Records that the shop has linked its eBay account. For future per-shop accounts. |
+
+### An item's lifecycle
+
+```bash
+# 1. Intake: draft from photos, for a shop (default shop 1)
+npm run list -- --shop 2 --photos "photos/1.jpg" --q "pendleton wool shirt"      # prints Item #N
+
+# 2. eBay draft: checks the shop allows eBay and the price is above its floor
+npm run publish -- --listing N --photos "https://..." --price 45 --qty 1 --condition USED_EXCELLENT
+
+# 3. Go live: publishes the draft, saves the eBay listing ID and URL, and sets the item to 'listed'
+npm run go-live -- --item N --yes
+
+#    Listed on Depop (or on eBay through Seller Hub) by hand? Record it so a sale can end it:
+npm run listing-add -- --item N --platform depop --price 45 --url "https://www.depop.com/products/..."
+
+# 4. Sold: logs the sale and closes the item out everywhere
+npm run sale-add -- --listing N --platform depop --price 45 --cost 0 --fees 4.50
+```
+
+Item statuses: `intake` → `review` (a draft exists) → `listed` → `sold`. `shipped` and
+`returned` exist in the schema, but no command sets them yet.
+
+When an item sells (`sale-add --listing N`), the app:
+
+1. writes the sale, in integer cents for payouts and in dollars for `npm run books`,
+2. sets the item to `sold` and the listing on the platform where it sold to `sold`,
+3. ends the item's other active listings:
+   - **eBay**: ended through the API (withdraws the offer).
+   - **Depop**: Depop's API is partner-only, so the listing is flagged for you to take down by
+     hand. The same happens if the eBay API call fails. The sale is recorded either way.
+
+```bash
+npm run delist-queue                                  # still live somewhere, take these down
+npm run delist-done -- --item N --platform depop      # after you've removed it
+```
+
+The same item can't be sold twice: a second `sale-add` for it is refused.
+
+### Monthly payouts
+
+```bash
+npm run payouts                                  # every shop, every month
+npm run payouts -- --month 2026-11 --shop 2
+```
+
+This reads the `shop_payouts` view. For each shop and month it shows items sold, gross (item
+sale price), platform fees, net (gross minus fees), your cut (net × your split) and the shop's
+share (the rest). Shipping charged to the buyer isn't included in gross. Sales logged with
+`--item` instead of `--listing` count toward shop #1. The split used is the shop's *current*
+split, so changing a shop's split later also changes its past months in the report.
+
+### Database
+
+Schema changes live in `src/migrations/` and run automatically the next time any command
+starts. Before a migration runs, the database is copied to `src/data/backups/`.
+`npm run migrate` shows which migrations have been applied. Money in the multi-shop tables is
+stored as integer cents.
+
+Names: `listings` was already the table of items, so it stays the items table and gained
+`shop_id` and `status`. Per-platform listings live in `platform_listings` (`item_id`,
+`platform`, `external_id`, `url`, `offer_id`, `status`, `delist_pending`). The existing
+`sales` table gained `sale_price_cents`, `fees_cents`, `shipped_at` and `paid_out_at`.
+`sales.listing_id` is the item id.
+
+### Tests
+
+```bash
+npm test
+```
+
+The tests run against a throwaway database in your temp folder and never call eBay: the eBay
+functions are swapped for fakes.
+
 ## The Terapeak step
 
 eBay's Marketplace Insights API (the only official source of sold data) is a Limited Release
@@ -200,8 +295,14 @@ src/
   lib/
     ebay.js              Browse API (active listings) + Sell API (inventory/offers, OAuth)
     claude.js            Anthropic client, ask() and askJSON() (text + vision)
-    db.js                SQLite schema: research, listings, ebay_offers, messages, sales, dropship_orders, runs
+    db.js                SQLite schema: research, listings (items), ebay_offers, messages, sales, dropship_orders, runs
+    migrate.js           runs src/migrations/ in order, backing up the DB first
+    money.js             dollars <-> integer cents
+  migrations/
+    001_multi_shop.js    shops, platform_listings, shop_payouts view; shop_id/status on items
   modules/
+    shops.js             shops, allowed-platform/price-floor rules, payout queries
+    inventory.js         record listings, record sales and end other listings, delist queue
     sourcing.js          Module 1 — bulk-buy
     wholesaleSourcing.js Module 1b — dropship (no bulk/capital framing)
     listing.js           Module 2
@@ -214,6 +315,8 @@ src/
     index.html           Module 6 — dashboard page (served by dashboardServer.js)
   index.js        CLI
   data/agent.db   created by init-db
+  data/backups/   pre-migration copies of agent.db
+test/             npm test (node:test, throwaway DB, eBay faked)
 ```
 
 ## Roadmap
