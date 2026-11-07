@@ -4,7 +4,11 @@ import {
   createOffer,
   suggestCategory,
 } from '../lib/ebay.js';
-import { getListing, saveOffer, logRun } from '../lib/db.js';
+import { db, getListing, saveOffer, logRun } from '../lib/db.js';
+import { publishOffer, listingUrl } from '../lib/ebay.js';
+import { toCents } from '../lib/money.js';
+import { getShop, assertCanList } from './shops.js';
+import { recordListing } from './inventory.js';
 
 const VALID_CONDITIONS = [
   'NEW', 'LIKE_NEW', 'NEW_OTHER', 'NEW_WITH_DEFECTS',
@@ -35,7 +39,7 @@ function slugSku(query) {
  * never calls publishOffer(). Review the draft in Seller Hub before publishing it yourself.
  */
 export async function createDraft({
-  listingId, title, description, photos, price, qty, condition, categoryId, sku,
+  listingId, title, description, photos, price, qty, condition, categoryId, sku, shopId,
 }) {
   const started = Date.now();
 
@@ -52,7 +56,18 @@ export async function createDraft({
     if (listingId != null) {
       listing = getListing(listingId);
       if (!listing) throw new Error(`No listing found with id ${listingId}`);
+      if (['sold', 'shipped', 'returned'].includes(listing.status)) {
+        throw new Error(`Item #${listingId} is already ${listing.status}.`);
+      }
+      if (shopId != null && shopId !== listing.shop_id) {
+        throw new Error(`Item #${listingId} belongs to shop #${listing.shop_id}, not shop #${shopId}.`);
+      }
     }
+
+    // Shop rules: allowed platforms + price floor. Items carry their shop; a standalone
+    // --title draft uses --shop (default 1, your own inventory).
+    const shop = getShop(listing?.shop_id ?? shopId ?? 1);
+    assertCanList(shop, 'ebay', Number.isFinite(price) ? toCents(price) : null);
 
     const finalTitle = title ?? listing?.title;
     const finalDescription = description ?? listing?.description;
@@ -135,6 +150,67 @@ export async function createDraft({
     });
 
     return { sku: finalSku, offerId: offerResult.offerId, categoryId: finalCategoryId, categorySource, warnings: offerResult.warnings ?? [] };
+  } catch (err) {
+    logRun({ module: 'publish', status: 'error', detail: err.message, durationMs: Date.now() - started });
+    throw err;
+  }
+}
+
+/**
+ * Makes an item's eBay draft offer LIVE, then records the eBay listing ID + URL in
+ * platform_listings and moves the item to 'listed'. Only ever runs from an explicit
+ * `npm run go-live -- ... --yes`; nothing calls it automatically. Re-checks the shop's
+ * platform/price-floor rules first, since settings may have changed since the draft.
+ *
+ * `deps.publish` exists so tests can run without touching eBay.
+ */
+export async function goLive({ itemId, offerId }, { publish = publishOffer } = {}) {
+  const started = Date.now();
+  try {
+    const offer = offerId
+      ? db.prepare(`SELECT * FROM ebay_offers WHERE offer_id = ?`).get(offerId)
+      : db
+          .prepare(
+            `SELECT * FROM ebay_offers WHERE listing_id = ? AND status = 'draft' AND offer_id IS NOT NULL
+             ORDER BY id DESC LIMIT 1`
+          )
+          .get(itemId);
+    if (!offer) {
+      throw new Error(
+        offerId
+          ? `No offer ${offerId} in the local database (create it with npm run publish first).`
+          : `Item #${itemId} has no draft eBay offer. Run npm run publish -- --listing ${itemId} ... first.`
+      );
+    }
+    if (offer.status !== 'draft') throw new Error(`Offer ${offer.offer_id} is ${offer.status}, not a draft.`);
+    if (offer.listing_id == null) {
+      throw new Error(`Offer ${offer.offer_id} isn't tied to an item, so it can't be tracked per shop.`);
+    }
+    if (itemId != null && offer.listing_id !== itemId) {
+      throw new Error(`Offer ${offer.offer_id} belongs to item #${offer.listing_id}, not #${itemId}.`);
+    }
+
+    const item = getListing(offer.listing_id);
+    const priceCents = toCents(offer.price);
+    // recordListing checks this too, but check BEFORE the listing goes live, not after.
+    assertCanList(getShop(item.shop_id), 'ebay', priceCents);
+
+    const res = await publish(offer.offer_id);
+    const ebayListingId = res?.listingId;
+    if (!ebayListingId) throw new Error(`eBay did not return a listing ID: ${JSON.stringify(res)}`);
+
+    db.prepare(`UPDATE ebay_offers SET status = 'published' WHERE id = ?`).run(offer.id);
+    const row = recordListing({
+      itemId: item.id,
+      platform: 'ebay',
+      externalId: ebayListingId,
+      url: listingUrl(ebayListingId),
+      offerId: offer.offer_id,
+      priceCents,
+    });
+
+    logRun({ module: 'publish', status: 'ok', detail: `item #${item.id} live on eBay: ${ebayListingId}`, durationMs: Date.now() - started });
+    return row;
   } catch (err) {
     logRun({ module: 'publish', status: 'error', detail: err.message, durationMs: Date.now() - started });
     throw err;

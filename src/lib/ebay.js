@@ -249,6 +249,22 @@ export async function publishOffer(offerId) {
   });
 }
 
+/**
+ * Ends a live listing by withdrawing its published offer. Called when an item sells somewhere
+ * else so it can't be bought twice. The offer goes back to unpublished; nothing is deleted.
+ */
+export async function withdrawOffer(offerId) {
+  return sellApi(`/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/withdraw`, {
+    method: 'POST',
+  });
+}
+
+/** Public URL of a live eBay listing. */
+export function listingUrl(listingId) {
+  const host = ENV === 'production' ? 'www.ebay.com' : 'sandbox.ebay.com';
+  return `https://${host}/itm/${listingId}`;
+}
+
 let cachedCategoryTreeId = null;
 
 async function getCategoryTreeId() {

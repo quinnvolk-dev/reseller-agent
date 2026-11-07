@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { mkdirSync } from 'fs';
 import path from 'path';
 import { migrate } from './migrate.js';
+import { toCents } from './money.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // RESELLER_DB_PATH lets tests (or a scratch copy) point at a different file. Unset = your real DB.
@@ -157,16 +158,18 @@ export function saveResearch(row) {
   return stmt.run(row).lastInsertRowid;
 }
 
+// The `listings` table is the items table: one row per physical item. Every item belongs to a
+// shop (default 1 = your own inventory).
 export function saveListing(row) {
   const stmt = db.prepare(`
     INSERT INTO listings
-      (query, photos, title, description, tags, condition_assessment,
+      (shop_id, status, query, photos, title, description, tags, condition_assessment,
        suggested_price, confidence, flags)
     VALUES
-      (@query, @photos, @title, @description, @tags, @condition_assessment,
+      (@shop_id, @status, @query, @photos, @title, @description, @tags, @condition_assessment,
        @suggested_price, @confidence, @flags)
   `);
-  return stmt.run(row).lastInsertRowid;
+  return Number(stmt.run({ shop_id: 1, status: 'intake', ...row }).lastInsertRowid);
 }
 
 export function saveOffer(row) {
@@ -193,17 +196,26 @@ export function saveMessage(row) {
   return stmt.run(row).lastInsertRowid;
 }
 
+// sale_price_cents / fees_cents are what shop payouts use; the dollar columns stay for `books`.
 export function saveSale(row) {
   const stmt = db.prepare(`
     INSERT INTO sales
       (sold_at, listing_id, item, platform, sale_price, shipping_charged, cost_basis,
-       platform_fees, fees_estimated, shipping_cost, other_costs, net_profit, margin_pct, notes)
+       platform_fees, fees_estimated, shipping_cost, other_costs, net_profit, margin_pct, notes,
+       sale_price_cents, fees_cents)
     VALUES
       (COALESCE(@sold_at, datetime('now')), @listing_id, @item, @platform, @sale_price,
        @shipping_charged, @cost_basis, @platform_fees, @fees_estimated, @shipping_cost,
-       @other_costs, @net_profit, @margin_pct, @notes)
+       @other_costs, @net_profit, @margin_pct, @notes,
+       @sale_price_cents, @fees_cents)
   `);
-  return stmt.run(row).lastInsertRowid;
+  return Number(
+    stmt.run({
+      sale_price_cents: toCents(row.sale_price),
+      fees_cents: toCents(row.platform_fees),
+      ...row,
+    }).lastInsertRowid
+  );
 }
 
 export function listSales({ since, platform } = {}) {

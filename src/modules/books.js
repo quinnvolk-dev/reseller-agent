@@ -1,4 +1,6 @@
 import { getListing, saveSale, listSales, logRun } from '../lib/db.js';
+import { toCents, toDollars } from '../lib/money.js';
+import { recordSale } from './inventory.js';
 
 // eBay's standard final value fee is ~13.25% of (item price + shipping charged) for most
 // categories, plus a flat $0.30 per order, as of the rates published at ebay.com/help/selling
@@ -12,7 +14,12 @@ export function estimateFees(salePrice, shippingCharged = 0, feePct = DEFAULT_FE
   return +((salePrice + shippingCharged) * (feePct / 100) + DEFAULT_FEE_FLAT).toFixed(2);
 }
 
-export function logSale({
+/**
+ * Logs a sale from dollar amounts (what `npm run sale-add` takes). If it's tied to an item
+ * (--listing), it goes through inventory.recordSale, which also marks the item sold and ends
+ * its other listings. A standalone --item sale is just written to the books (counts as shop 1).
+ */
+export async function logSale({
   item,
   listingId,
   platform = 'ebay',
@@ -25,7 +32,7 @@ export function logSale({
   otherCosts = 0,
   soldAt,
   notes,
-}) {
+}, deps = {}) {
   const started = Date.now();
 
   try {
@@ -39,6 +46,35 @@ export function logSale({
 
     const feesEstimated = platformFees == null;
     const fees = feesEstimated ? estimateFees(salePrice, shippingCharged, feePct) : platformFees;
+
+    if (listing) {
+      const r = await recordSale(
+        {
+          itemId: listingId,
+          platform,
+          salePriceCents: toCents(salePrice),
+          feesCents: toCents(fees),
+          feesEstimated,
+          shippingChargedCents: toCents(shippingCharged),
+          costBasisCents: toCents(costBasis),
+          shippingCostCents: toCents(shippingCost),
+          otherCostsCents: toCents(otherCosts),
+          soldAt: soldAt ?? null,
+          notes: notes ?? null,
+        },
+        deps
+      );
+      return {
+        id: r.saleId,
+        item: resolvedItem,
+        fees,
+        feesEstimated,
+        netProfit: toDollars(r.netCents),
+        marginPct: r.marginPct,
+        ended: r.ended,
+        manual: r.manual,
+      };
+    }
 
     const revenue = salePrice + shippingCharged;
     const costs = costBasis + fees + shippingCost + otherCosts;
@@ -69,7 +105,7 @@ export function logSale({
       durationMs: Date.now() - started,
     });
 
-    return { id, item: resolvedItem, fees, feesEstimated, netProfit, marginPct };
+    return { id, item: resolvedItem, fees, feesEstimated, netProfit, marginPct, ended: [], manual: [] };
   } catch (err) {
     logRun({ module: 'books', status: 'error', detail: err.message, durationMs: Date.now() - started });
     throw err;
