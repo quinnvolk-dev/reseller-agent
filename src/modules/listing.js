@@ -3,6 +3,7 @@ import { extname } from 'path';
 import { searchActive } from '../lib/ebay.js';
 import { askJSON } from '../lib/claude.js';
 import { saveListing, logRun } from '../lib/db.js';
+import { getShop } from './shops.js';
 
 const MEDIA_TYPES = {
   '.jpg': 'image/jpeg',
@@ -53,11 +54,13 @@ const SCHEMA = {
   required: ['title', 'description', 'tags', 'condition_assessment', 'confidence', 'flags'],
 };
 
-export async function generate({ photos, query, unitCost, condition, notes }) {
+export async function generate({ photos, query, unitCost, condition, notes, shopId = 1 }) {
   const started = Date.now();
 
   try {
     if (!photos?.length) throw new Error('At least one photo is required.');
+    // Fail before spending an eBay search + Claude call on a typo'd shop id.
+    getShop(shopId);
 
     const images = photos.map(loadImage);
     // condition is free text for the prompt, not an eBay condition enum — don't filter comps with it
@@ -93,7 +96,9 @@ Return JSON with exactly these keys:
 
     const result = await askJSON(prompt, { system: SYSTEM, maxTokens: 1500, images, schema: SCHEMA });
 
-    saveListing({
+    const itemId = saveListing({
+      shop_id: shopId,
+      status: 'review', // a draft exists; waiting on you to review/publish it
       query,
       photos: JSON.stringify(photos),
       title: result.title,
@@ -112,7 +117,7 @@ Return JSON with exactly these keys:
       durationMs: Date.now() - started,
     });
 
-    return { ...result, active };
+    return { ...result, active, itemId, shopId };
   } catch (err) {
     logRun({
       module: 'listing',

@@ -18,7 +18,16 @@
     "order-add": "node src/index.js order-add",
     "orders": "node src/index.js orders",
     "order-update": "node src/index.js order-update",
-    "init-db": "node src/lib/db.js"
+    "shop-add": "node src/index.js shop-add",
+    "shops": "node src/index.js shops",
+    "payouts": "node src/index.js payouts",
+    "go-live": "node src/index.js go-live",
+    "listing-add": "node src/index.js listing-add",
+    "delist-queue": "node src/index.js delist-queue",
+    "delist-done": "node src/index.js delist-done",
+    "init-db": "node src/lib/db.js",
+    "migrate": "node src/index.js migrate",
+    "test": "node --import ./test/support/register.mjs --test test/*.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",

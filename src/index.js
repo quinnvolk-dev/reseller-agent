@@ -8,6 +8,10 @@ import { logSale, summary } from './modules/books.js';
 import { build as buildDashboard } from './modules/dashboard.js';
 import { start as startDashboardServer } from './modules/dashboardServer.js';
 import { consentUrl, exchangeCode, getBusinessPolicies, getMerchantLocations, createMerchantLocation } from './lib/ebay.js';
+import { createShop, listShops, getPayouts } from './modules/shops.js';
+import { recordListing, delistQueue, markDelisted } from './modules/inventory.js';
+import { goLive } from './modules/publish.js';
+import { toCents, fmtCents } from './lib/money.js';
 
 init();
 
@@ -23,7 +27,14 @@ function money(n) {
 }
 
 try {
-if (command === 'source') {
+if (command === 'migrate') {
+  // init() above already applied anything pending; this just reports where things stand.
+  const { db } = await import('./lib/db.js');
+  const rows = db.prepare('SELECT id, applied_at FROM schema_migrations ORDER BY id').all();
+  console.log('\n  Database is up to date. Applied migrations:');
+  rows.forEach((r) => console.log(`    ${r.id}  (${r.applied_at})`));
+  console.log();
+} else if (command === 'source') {
   const query = flag('q');
   const unitCost = parseFloat(flag('cost'));
   const qty = parseInt(flag('qty', '1'), 10);
@@ -165,16 +176,18 @@ if (command === 'source') {
   const unitCost = flag('cost') ? parseFloat(flag('cost')) : null;
   const condition = flag('condition');
   const notes = flag('notes');
+  const shopId = flag('shop') ? parseInt(flag('shop'), 10) : 1;
 
   if (!query || !photos?.length) {
     console.error(
-      'Usage: npm run list -- --photos "img1.jpg,img2.jpg" --q "product name" [--cost 12.50] [--condition "used"] [--notes "size L"]'
+      'Usage: npm run list -- --photos "img1.jpg,img2.jpg" --q "product name" [--cost 12.50] [--condition "used"] [--notes "size L"] [--shop N]'
     );
     process.exit(1);
   }
 
-  const r = await generate({ photos, query, unitCost, condition, notes });
+  const r = await generate({ photos, query, unitCost, condition, notes, shopId });
 
+  console.log(`\n  Item #${r.itemId}  (shop #${r.shopId})`);
   console.log(`\n  ${r.title}`);
   console.log(`  ${'-'.repeat(r.title.length)}\n`);
   console.log(`  ${r.description}\n`);
@@ -259,6 +272,7 @@ if (command === 'source') {
   const condition = flag('condition');
   const categoryId = flag('category');
   const sku = flag('sku');
+  const shopId = flag('shop') ? parseInt(flag('shop'), 10) : null;
 
   if ((!listingId && !title) || !photos?.length || !price || !qty || !condition) {
     console.error(
@@ -269,7 +283,7 @@ if (command === 'source') {
     process.exit(1);
   }
 
-  const r = await createDraft({ listingId, title, description, photos, price, qty, condition, categoryId, sku });
+  const r = await createDraft({ listingId, title, description, photos, price, qty, condition, categoryId, sku, shopId });
 
   console.log(`\n  Draft created (not published)`);
   console.log(`  SKU        ${r.sku}`);
@@ -279,7 +293,12 @@ if (command === 'source') {
     console.log('  Warnings from eBay:');
     r.warnings.forEach((w) => console.log(`    - ${w.message ?? JSON.stringify(w)}`));
   }
-  console.log('\n  Review it in Seller Hub -> Listings -> Drafts before publishing it yourself.\n');
+  console.log('\n  Review it in Seller Hub -> Listings -> Drafts before publishing it yourself.');
+  if (listingId) {
+    console.log(`  When it's ready to go live: npm run go-live -- --item ${listingId} --yes\n`);
+  } else {
+    console.log();
+  }
 } else if (command === 'reply') {
   const buyerMessage = flag('message');
   const listingId = flag('listing') ? parseInt(flag('listing'), 10) : null;
@@ -326,7 +345,7 @@ if (command === 'source') {
     process.exit(1);
   }
 
-  const r = logSale({
+  const r = await logSale({
     item, listingId, platform, salePrice, shippingCharged, costBasis,
     platformFees, feePct, shippingCost, otherCosts, soldAt, notes,
   });
@@ -334,6 +353,13 @@ if (command === 'source') {
   console.log(`\n  Logged sale #${r.id}: ${r.item}`);
   console.log(`  Fees        ${money(r.fees)}${r.feesEstimated ? '  (estimated — replace with the real payout figure when it lands)' : ''}`);
   console.log(`  Net profit  ${money(r.netProfit)}  (${r.marginPct ?? '?'}% margin)\n`);
+  if (listingId) console.log(`  Item #${listingId} marked sold.`);
+  r.ended.forEach((l) => console.log(`  Ended ${l.platform} listing ${l.external_id ?? ''} via API.`));
+  if (r.manual.length) {
+    console.log('  STILL LIVE — take these down by hand, then run npm run delist-done:');
+    r.manual.forEach((l) => console.log(`    - ${l.platform} ${l.url ?? l.external_id ?? ''}  (${l.reason})`));
+  }
+  if (listingId) console.log();
 } else if (command === 'books') {
   const since = flag('since');
   const platform = flag('platform');
@@ -351,6 +377,110 @@ if (command === 'source') {
     console.log(`  Other costs  ${money(s.otherCosts)}`);
     console.log(`  Net profit   ${money(s.netProfit)}  (${s.avgMarginPct ?? '?'}% avg margin)\n`);
   }
+} else if (command === 'shop-add') {
+  const name = flag('name');
+  if (!name) {
+    console.error(
+      'Usage: npm run shop-add -- --name "Shop name" [--contact "Name"] [--email "..."] [--phone "..."]\n' +
+        '  [--platforms ebay,depop] [--floor 15.00] [--split 25] [--mode mine|theirs] [--ebay-connected]'
+    );
+    process.exit(1);
+  }
+  const id = createShop({
+    name,
+    contactName: flag('contact'),
+    contactEmail: flag('email'),
+    contactPhone: flag('phone'),
+    allowedPlatforms: (flag('platforms') ?? 'ebay').split(','),
+    priceFloorCents: flag('floor') ? toCents(flag('floor')) : 0,
+    mySplitPct: flag('split') ? parseFloat(flag('split')) : 25,
+    accountMode: flag('mode', 'mine'),
+    ebayConnected: rest.includes('--ebay-connected'),
+  });
+  console.log(`\n  Created shop #${id}: ${name}`);
+  console.log(`  Add items for it with: npm run list -- --shop ${id} --photos "..." --q "..."\n`);
+} else if (command === 'shops') {
+  console.log();
+  listShops().forEach((s) => {
+    console.log(`  #${s.id}  ${s.name}`);
+    const contact = [s.contact_name, s.contact_email, s.contact_phone].filter(Boolean).join(' · ');
+    if (contact) console.log(`       contact: ${contact}`);
+    console.log(
+      `       platforms: ${s.allowed_platforms.join(', ')}  ·  floor ${fmtCents(s.price_floor_cents)}  ·  ` +
+        `your split ${s.my_split_pct}%  ·  account: ${s.account_mode}${s.ebay_connected ? ' (eBay connected)' : ''}`
+    );
+  });
+  console.log();
+} else if (command === 'payouts') {
+  const month = flag('month');
+  const shopId = flag('shop') ? parseInt(flag('shop'), 10) : null;
+  if (month && !/^\d{4}-\d{2}$/.test(month)) {
+    console.error('Usage: npm run payouts [-- --month 2026-11] [--shop N]');
+    process.exit(1);
+  }
+  const rows = getPayouts({ month, shopId });
+  console.log(`\n  Shop payouts${month ? ` for ${month}` : ''}${shopId ? ` (shop #${shopId})` : ''}\n`);
+  if (!rows.length) {
+    console.log('  No sales in that range.\n');
+  } else {
+    const head = ['Month', 'Shop', 'Sold', 'Gross', 'Fees', 'Net', 'My cut', 'Shop share'];
+    const table = rows.map((r) => [
+      r.month, `#${r.shop_id} ${r.shop_name}`, String(r.items_sold),
+      fmtCents(r.gross_cents), fmtCents(r.fees_cents), fmtCents(r.net_cents),
+      fmtCents(r.my_cut_cents), fmtCents(r.shop_share_cents),
+    ]);
+    const widths = head.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
+    const line = (cells) => '  ' + cells.map((c, i) => (i < 2 ? c.padEnd(widths[i]) : c.padStart(widths[i]))).join('  ');
+    console.log(line(head));
+    console.log('  ' + widths.map((w) => '-'.repeat(w)).join('  '));
+    table.forEach((row) => console.log(line(row)));
+    console.log('\n  Gross = item sale price (shipping charged excluded). Net = gross - platform fees.\n');
+  }
+} else if (command === 'listing-add') {
+  // Record a listing you made yourself (Depop, or eBay via Seller Hub).
+  const itemId = flag('item') ? parseInt(flag('item'), 10) : null;
+  const platform = flag('platform')?.toLowerCase();
+  const price = flag('price') ? parseFloat(flag('price')) : null;
+  if (!itemId || !platform || !Number.isFinite(price)) {
+    console.error(
+      'Usage: npm run listing-add -- --item N --platform depop|ebay --price 45 [--id "external id"] [--url "https://..."] [--offer-id "eBay offer id"]'
+    );
+    process.exit(1);
+  }
+  const row = recordListing({
+    itemId, platform, externalId: flag('id'), url: flag('url'), offerId: flag('offer-id'), priceCents: toCents(price),
+  });
+  console.log(`\n  Item #${itemId} recorded as listed on ${row.platform}${row.url ? `: ${row.url}` : ''}\n`);
+} else if (command === 'go-live') {
+  const itemId = flag('item') ? parseInt(flag('item'), 10) : null;
+  const offerId = flag('offer');
+  if ((!itemId && !offerId) || !rest.includes('--yes')) {
+    console.error(
+      'Usage: npm run go-live -- --item N --yes     (or --offer <offerId> --yes)\n' +
+        'Publishes the item\'s eBay DRAFT offer so it goes LIVE and can be bought. --yes is required.'
+    );
+    process.exit(1);
+  }
+  const row = await goLive({ itemId, offerId });
+  console.log(`\n  Item #${row.item_id} is live on eBay: ${row.url}\n`);
+} else if (command === 'delist-queue') {
+  const q = delistQueue();
+  if (!q.length) {
+    console.log('\n  Nothing waiting to be delisted.\n');
+  } else {
+    console.log('\n  Sold elsewhere but still live — take these down by hand:\n');
+    q.forEach((l) => console.log(`    item #${l.item_id}  ${l.platform}  ${l.title ?? ''}  ${l.url ?? l.external_id ?? ''}`));
+    console.log('\n  Then: npm run delist-done -- --item N --platform depop\n');
+  }
+} else if (command === 'delist-done') {
+  const itemId = flag('item') ? parseInt(flag('item'), 10) : null;
+  const platform = flag('platform')?.toLowerCase();
+  if (!itemId || !platform) {
+    console.error('Usage: npm run delist-done -- --item N --platform depop');
+    process.exit(1);
+  }
+  markDelisted(itemId, platform);
+  console.log(`\n  Item #${itemId}'s ${platform} listing marked ended.\n`);
 } else if (command === 'dashboard') {
   const sinceDays = flag('days') ? parseInt(flag('days'), 10) : 7;
 
@@ -402,7 +532,7 @@ if (command === 'source') {
     'Commands:\n' +
       '  npm run source -- --q "..." --cost N --qty N [--sold N] [--soldavg N]\n' +
       '  npm run source-wholesale -- --q "..." --wcost N [--handling N] [--sold N] [--soldavg N]\n' +
-      '  npm run list -- --photos "img1.jpg,img2.jpg" --q "..." [--cost N] [--condition "..."] [--notes "..."]\n' +
+      '  npm run list -- --photos "img1.jpg,img2.jpg" --q "..." [--cost N] [--condition "..."] [--notes "..."] [--shop N]\n' +
       '  npm run ebay-auth [-- --code "..."]        one-time eBay account authorization\n' +
       '  npm run ebay-policies                       look up policy IDs and merchant location\n' +
       '  npm run ebay-location -- --line1 "..." --city ... --state .. --zip ...   create a ship-from location\n' +
@@ -413,7 +543,16 @@ if (command === 'source') {
       '  npm run dashboard [-- --port 4173] [--days 7]   opens a local web dashboard (add --text for the CLI report)\n' +
       '  npm run order-add -- --item "..." [--wcost N] [--price N] [--supplier "..."] [--buyer "..."] [--address "..."]\n' +
       '  npm run orders [-- --status needs_ordering|ordered|shipped|delivered|issue]\n' +
-      '  npm run order-update -- --id N [--status ...] [--supplier-ref "..."] [--tracking "..."]'
+      '  npm run order-update -- --id N [--status ...] [--supplier-ref "..."] [--tracking "..."]\n' +
+      '\n  Multi-shop:\n' +
+      '  npm run shop-add -- --name "..." [--platforms ebay,depop] [--floor N] [--split 25] [--mode mine|theirs]\n' +
+      '  npm run shops                                list shops and their settings\n' +
+      '  npm run go-live -- --item N --yes            publish an item\'s eBay draft (goes LIVE)\n' +
+      '  npm run listing-add -- --item N --platform depop --price N [--url "..."]   record a listing made by hand\n' +
+      '  npm run delist-queue                         listings to take down by hand after a sale\n' +
+      '  npm run delist-done -- --item N --platform depop\n' +
+      '  npm run payouts [-- --month 2026-11] [--shop N]   monthly payout report per shop\n' +
+      '  npm run migrate                              apply/show database migrations'
   );
 }
 } catch (err) {
